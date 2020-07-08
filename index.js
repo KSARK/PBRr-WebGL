@@ -1,4 +1,4 @@
-var MinimalGLTFLoader = require('./minimal-gltf-loader.js');
+
 import {mat4} from 'gl-matrix'
 import * as twgl from 'twgl.js'
 
@@ -51,97 +51,81 @@ function getAccessorAndWebGLBuffer(gl, gltf, accessorIndex) {
     };
 }
 
-function loadTexture(gl, glTF, index) {
-    var texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
- 
-    // Set the parameters so we don't need mips
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
- 
-    // Upload the image into the texture.
-    var mipLevel = 0;               // the largest mip
-    var internalFormat = gl.RGBA;   // format we want in the texture
-    var srcFormat = gl.RGBA;        // format of data we are supplying
-    var srcType = gl.UNSIGNED_BYTE; // type of data we are supplying
-    gl.texImage2D(gl.TEXTURE_2D,
-                  mipLevel,
-                  internalFormat,
-                  srcFormat,
-                  srcType,
-                  glTF.images[index]);
- 
-    // add the texture to the array of textures.
-    return texture;
-}
-
 function loadTextures(gl, glTF) {
-    var textures = [];
+    var textures = {};
     
-    var material = glTF.materials[0]
-    var baseColorMap =  material.pbrMetallicRoughness.baseColorTexture.index;
-    var metalRoughMap = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
-    var normalMap = material.normalTexture.index;
-    //var occlusionColor = material.occlusionTexture.index;
-    //var emissiveMap = material.emissiveTexture.index;
+    var material = glTF.materials[0];
+    var images = glTF.images;
+
+    var baseColorMapIndex =  material.pbrMetallicRoughness.baseColorTexture.index;
+    var metalRoughMapIndex = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
+    var normalMapIndex = material.normalTexture.index;
+    var occlusionColorIndex = material.occlusionTexture.index;
+    var emissiveMapIndex = material.emissiveTexture.index;
     if (!material) {
         return 0;
     }
-    if (baseColorMap != null) {
-        textures.push({texObj:loadTexture(gl, glTF, baseColorMap), name: 'uBaseColor'});
+    if (baseColorMapIndex != null) {
+        textures['uBaseColorMap'] = {src: uri2URL(images[baseColorMapIndex].uri)};
+        
     }
-    if (metalRoughMap != null) {
-        textures.push({texObj: loadTexture(gl, glTF, metalRoughMap), name: 'uMetalRoughMap'});
+    if (metalRoughMapIndex != null) {
+        textures['uMetalRoughMap'] = {src: uri2URL(images[metalRoughMapIndex].uri)};
     }
-    if (normalMap != null) {
-        textures.push({texObj: loadTexture(gl, glTF, normalMap), name: 'uNormalMap'})
+    if (normalMapIndex != null) {
+        textures['uNormalMap'] = {src: uri2URL(images[normalMapIndex].uri)};
     }
-    var n = 0;
-    textures.forEach(texture =>{
-        var samplerLocation = gl.getUniformLocation(meshProgramInfo.program, texture.name);
-        gl.uniform1i(samplerLocation, 0);
-        gl.activeTexture(gl.TEXTURE0 + n);
-        gl.bindTexture(gl.TEXTURE_2D, texture.texObj);
-        n++;
-        console.log(texture.name+' have loaded.');
-    });
-
+    if (occlusionColorIndex != null) {
+        textures['uAOMAP'] = {src: uri2URL(images[occlusionColorIndex].uri)};
+    }
+    if (emissiveMapIndex != null) {
+        textures['uEmissiveMap'] = {src: uri2URL(images[emissiveMapIndex].uri)};
+    }
+    
+    var glTextures = twgl.createTextures(gl, textures);
+    glTF.materials[0].uniforms = {};
+    Object.keys(textures).forEach(uniformV => {
+        glTF.materials[0].uniforms[uniformV] = glTextures[uniformV];
+    })
+    console.log(glTF.materials[0].uniforms);
+    
     return true;
 }
 
-var glJSON;
 
 
-var url = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf'
 
+const url = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf'
+const baseURL = new URL(url, location.href);
+function uri2URL(uri) {
+    var _url = new URL(uri, baseURL.href).href;
+   // console.log(_url);
+    return _url;
+}
 
 //mouse event handler
 //Reference: 
-var glTFLoader = new MinimalGLTFLoader.glTFLoader();
-glTFLoader.loadGLTF(url, function (glTF) {
-    console.log(glTF);
-    let request = new XMLHttpRequest();
-    request.open('GET', url);
-    request.responseType = 'text';
-    request.send();
-    request.onload = function () {
-        glJSON = JSON.parse(request.response);
-        const baseURL = new URL(url, location.href);
-        // console.log(glJSON);
-        var binURL = new URL(glJSON.buffers[0].uri, baseURL.href).href;
-        let binReq = new XMLHttpRequest();
-        binReq.open('GET', binURL);
-        binReq.responseType = 'arraybuffer';
-        binReq.send();
-        binReq.onload = function () {
-            glJSON.buffers[0] = binReq.response;
-            //console.log(glJSON);
-            main(glTF);
-        }
-    };
-});
+
+
+let request = new XMLHttpRequest();
+request.open('GET', url);
+request.responseType = 'text';
+request.send();
+request.onload = function () {
+    var glTF;
+    glTF = JSON.parse(request.response);
+    // console.log(glJSON);
+    var binURL = uri2URL(glTF.buffers[0].uri);
+    let binReq = new XMLHttpRequest();
+    binReq.open('GET', binURL);
+    binReq.responseType = 'arraybuffer';
+    binReq.send();
+    binReq.onload = function () {
+        glTF.buffers[0] = binReq.response;
+        //console.log(glJSON);
+        main(glTF);
+    }
+};
 
 
 
@@ -171,12 +155,12 @@ function accessorTypeToNumComponents(type) {
 
 
 
-function initVertexBuffers(gl) {
+function initVertexBuffers(gl, glTF) {
     const attribs = {};
     let numElements;
-    var primitive = glJSON.meshes[0].primitives[0];
+    var primitive = glTF.meshes[0].primitives[0];
     for (const [attribName, index] of Object.entries(primitive.attributes)) {
-      const {accessor, buffer, stride} = getAccessorAndWebGLBuffer(gl, glJSON, index);
+      const {accessor, buffer, stride} = getAccessorAndWebGLBuffer(gl, glTF, index);
       numElements = accessor.count;
       attribs[`a_${attribName}`] = {
         buffer,
@@ -192,7 +176,7 @@ function initVertexBuffers(gl) {
     };
 
     if (primitive.indices !== undefined) {
-        const { accessor, buffer } = getAccessorAndWebGLBuffer(gl, glJSON, primitive.indices);
+        const { accessor, buffer } = getAccessorAndWebGLBuffer(gl, glTF, primitive.indices);
         bufferInfo.numElements = accessor.count;
         bufferInfo.indices = buffer;
         bufferInfo.elementType = accessor.componentType;
@@ -282,8 +266,9 @@ function main(glTF) {
         mat4.transpose(normalMatrix, normalMatrix);
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        var primitive = glJSON.meshes[0].primitives[0];
-        //gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0);
+
+        var primitive = glTF.meshes[0].primitives[0];
+    
         gl.useProgram(meshProgramInfo.program);
         gl.bindVertexArray(primitive.vao);
         //console.log(primitive.vao);
@@ -293,7 +278,8 @@ function main(glTF) {
             u_modelViewM: modelViewMatrix,
             u_normalM: normalMatrix,
         });
-        twgl.setUniforms(meshProgramInfo, primitive.material.uniforms);
+        var material = glTF.materials[0];
+        twgl.setUniforms(meshProgramInfo, material.uniforms);
         //twgl.setUniforms(meshProgramInfo, sharedUniforms);
         twgl.drawBufferInfo(gl, primitive.bufferInfo);
 
