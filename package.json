@@ -1,0 +1,21 @@
+{
+  "name": "webgl-pbr",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "parcel index.html",
+    "watch": "parcel watch index.html",
+    "build": "parcel build index.html",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "gl-matrix": "^3.3.0",
+    "twgl.js": "^4.15.2"
+  },
+  "devDependencies": {
+    "parcel-bundler": "^1.12.4"
+  }
+}

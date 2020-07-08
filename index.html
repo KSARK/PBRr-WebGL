@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html style="height: 100%;">
+<head>
+  <!-- <meta name="viewport" content="width=device-width, initial-scale=1.0"> -->
+  
+  <!-- <title>webGLPBR</title> -->
+</head>
+<body style="margin: 0; height: 100%;">
+  <canvas id="pbr-test" style="height: 100%; width: 100%;  background: black;"></canvas>
+</body>
+<script type="x-shader/x-fragment" id="fs">
+  #version 300 es
+  precision highp float;
+
+  in vec3 v_normal;
+  in vec2 vTextureUv;
+
+  //uniform sampler2D uRadianceMap;
+  //uniform sampler2D uIrradianceMap;
+  uniform sampler2D uBaseColorMap;
+  uniform sampler2D uMetalRoughMap;
+  uniform sampler2D uNormalMap;
+  //uniform samplerCube 	depthMap;
+
+  out vec4 outColor;
+
+  void main () {
+    vec3 normal = normalize(v_normal);
+    vec4 albeoColor	= texture( uNormalMap , vTextureUv);
+    outColor = vec4(albeoColor.x, albeoColor.y, albeoColor.z, 1);
+  }
+</script>
+<script type="x-shader/x-vertex" id="vs">
+  #version 300 es
+  in vec4 a_POSITION;
+  in vec3 a_NORMAL;
+  in vec2 a_TEXCOORD_0;
+
+  
+  uniform mat4 u_projectionM;
+  uniform mat4 u_modelViewM;
+  uniform mat4 u_normalM;
+  
+  
+  out vec2 vTextureUv;
+  out vec3 v_normal;
+
+  void main() {
+    gl_Position = u_projectionM * u_modelViewM * a_POSITION;
+    v_normal = mat3(u_normalM) * a_NORMAL;
+    vTextureUv = a_TEXCOORD_0;
+  }
+</script>
+<script src="https://webgl2fundamentals.org/webgl/resources/m4.js"></script>
+<script src="./index.js"></script>
+</html>
