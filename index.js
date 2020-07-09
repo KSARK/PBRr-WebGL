@@ -288,7 +288,7 @@ function main(glTF) {
         twgl.setUniforms(meshProgramInfo, material.uniforms);
 
         var lightPosition = vec3.create();
-        lightPosition =  camPos;
+        lightPosition =  [1, 3, -6];
         //vec3.rotateY(lightPosition, lightPosition, [0, 0, 0], cubeRotation);
         //console.log(lightPosition);
         twgl.setUniforms(meshProgramInfo, {
