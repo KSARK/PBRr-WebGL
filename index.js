@@ -64,7 +64,7 @@ function initVertexBuffers(gl, glTF) {
     return true;
 }
 
-function loadTextures(gl, glTF) {
+function loadTextures(gl, glTF, callback) {
     var textures = {};
     
     var material = glTF.materials[0];
@@ -101,8 +101,7 @@ function loadTextures(gl, glTF) {
         glTF.materials[0].uniforms[uniformV] = glTextures[uniformV];
     })
     //console.log(glTF.materials[0].uniforms);
-    
-    return true;
+    callback();
 }
 
 const url = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf'
@@ -214,99 +213,87 @@ function main(glTF) {
         return;
     }
 
-    if (!loadTextures(gl, glTF)) {
-        console.log('Failed to set the Texture!');
-    }
+    loadTextures(gl, glTF, function () {
+        setupTangent(gl, glTF);
+        var then = 0.0;
+        var render = function (time) {
+            if (isNaN(time)) {
+                time = 0;
+            }
+            time *= 0.001;  // convert to seconds
+            var deltaTime = time - then;
+            then = time;
+            const fieldOfView = 45 * Math.PI / 180;   // in radians
+            const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+            const zNear = 0.1;
+            const zFar = 1000.0;
+            const projectionMatrix = mat4.create();
 
-    setupTangent(gl, glTF);
+            mat4.perspective(projectionMatrix,
+                fieldOfView,
+                aspect,
+                zNear,
+                zFar);
+            cubeRotation = cubeRotation + deltaTime;
+
+            var camPos = [0.0, 0.0, -7.0];
+            var viewMatrix = mat4.create();
+            mat4.lookAt(viewMatrix, camPos, [0, 0, 0], [0, 1, 0]);
+            //mat4.invert(viewMatrix, viewMatrix);
+
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            var primitive = glTF.meshes[0].primitives[0];
+
+            gl.useProgram(meshProgramInfo.program);
+            gl.bindVertexArray(primitive.vao);
+            //console.log(primitive.vao);
+            var rotateMatrix = mat4.create();
+            mat4.fromQuat(rotateMatrix, glTF.nodes[0].rotation);
+            //mat4.invert(rotateMatrix, rotateMatrix);
+            mat4.rotate(rotateMatrix,
+                rotateMatrix,
+                cubeRotation,
+                //0,
+                [0, 0, 1]
+            );
+            twgl.setBuffersAndAttributes(gl, meshProgramInfo, primitive.bufferInfo);
+            twgl.setUniforms(meshProgramInfo, {
+                u_projectionM: projectionMatrix,
+                u_viewM: viewMatrix,
+                u_rotateM: rotateMatrix,
+            });
+
+            var material = glTF.materials[0];
+            twgl.setUniforms(meshProgramInfo, material.uniforms);
+
+            var lightPosition = vec3.create();
+            lightPosition = [1, 3, -6];
+            //vec3.rotateY(lightPosition, lightPosition, [0, 0, 0], cubeRotation);
+            //console.log(lightPosition);
+            twgl.setUniforms(meshProgramInfo, {
+                uLightPosition: lightPosition,
+                uCamPosition: camPos,
+                uLightRadius: 3,
+                uLightColor: [50, 50, 50],
+            });
+
+            //twgl.setUniforms(meshProgramInfo, sharedUniforms);
+            twgl.drawBufferInfo(gl, primitive.bufferInfo);
+
+            requestAnimationFrame(render);
+
+        };
+        requestAnimationFrame(render);
+
+        render();
+    })
+
+
 
     //TODO: setupCubeMap
-    
-    var then = 0.0;
-    var render = function (time) {
-        if (isNaN(time)) {
-            time = 0;
-        }
-        time *= 0.001;  // convert to seconds
-        var deltaTime = time - then;
-        then = time;
-        const fieldOfView = 30 * Math.PI / 180;   // in radians
-        const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-        const zNear = 0.1;
-        const zFar = 1000.0;
-        const projectionMatrix = mat4.create();
 
-        // note: glmatrix.js always has the first argument
-        // as the destination to receive the result.
-        mat4.perspective(projectionMatrix,
-            fieldOfView,
-            aspect,
-            zNear,
-            zFar);
 
-        var modelMatrix = [1,0,0,0, 
-                           0,1,0,0, 
-                           0,0,1,0,
-                           0,0,0,1];
-        cubeRotation = cubeRotation + deltaTime;
-        //cubeRotation = 45;
-        //console.log(cubeRotation);
-        
-        
-        
-        
-        var camPos = [0.0, 0.0, -7.0];
-        var viewMatrix = mat4.create();
-        mat4.lookAt(viewMatrix, camPos, [0,0,0], [0,1,0]);
-        //mat4.invert(viewMatrix, viewMatrix);
-
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        var primitive = glTF.meshes[0].primitives[0];
-    
-        gl.useProgram(meshProgramInfo.program);
-        gl.bindVertexArray(primitive.vao);
-        //console.log(primitive.vao);
-        var rotateMatrix = mat4.create();
-        mat4.fromQuat(rotateMatrix, glTF.nodes[0].rotation);
-        //mat4.invert(rotateMatrix, rotateMatrix);
-        mat4.rotate(rotateMatrix,  
-            rotateMatrix,  
-            cubeRotation,    
-            //0,
-            [0, 0, 1]
-        );
-        twgl.setBuffersAndAttributes(gl, meshProgramInfo, primitive.bufferInfo);
-        twgl.setUniforms(meshProgramInfo, {
-            u_projectionM: projectionMatrix,
-            u_modelM: modelMatrix,
-            u_viewM: viewMatrix,
-            u_rotateM: rotateMatrix,
-        });
-
-        var material = glTF.materials[0];
-        twgl.setUniforms(meshProgramInfo, material.uniforms);
-
-        var lightPosition = vec3.create();
-        lightPosition =  [1, 3, -6];
-        //vec3.rotateY(lightPosition, lightPosition, [0, 0, 0], cubeRotation);
-        //console.log(lightPosition);
-        twgl.setUniforms(meshProgramInfo, {
-            uLightPosition: lightPosition,
-            uCamPosition: camPos,
-            uLightRadius: 3,
-            uLightColor: [50, 50, 50],
-        });
-
-        //twgl.setUniforms(meshProgramInfo, sharedUniforms);
-        twgl.drawBufferInfo(gl, primitive.bufferInfo);
-
-        requestAnimationFrame(render);
-        
-    };
-    requestAnimationFrame(render);
-    
-    render();
 }
 
 
