@@ -1,57 +1,193 @@
 <!DOCTYPE html>
 <html style="height: 100%;">
+
 <head>
   <!-- <meta name="viewport" content="width=device-width, initial-scale=1.0"> -->
-  
+
   <!-- <title>webGLPBR</title> -->
 </head>
+
 <body style="margin: 0; height: 100%;">
   <canvas id="pbr-test" style="height: 100%; width: 100%;  background: black;"></canvas>
 </body>
+<script type="x-shader/x-vertex" id="vs">
+  #version 300 es
+  precision highp float;
+
+  in vec4 a_POSITION;
+  in vec3 a_Tangent;
+  in vec3 a_NORMAL;
+  in vec2 a_TEXCOORD_0;
+
+  
+  uniform mat4 u_projectionM;
+  uniform mat4 u_modelM;
+  uniform mat4 u_viewM;
+  uniform mat4 u_normalM;
+  uniform mat4 u_rotateM;
+  
+  out vec3 vPosition;
+  out vec2 vTextureUv;
+  out vec3 vNormal;
+  out vec3 vTangent;
+
+  void main() {
+    gl_Position =  u_projectionM * u_viewM * u_rotateM * a_POSITION;
+    vNormal     = mat3(u_modelM) * a_NORMAL;
+
+    vec4 nor    = u_rotateM * vec4(a_NORMAL,1.0);
+    vNormal     = normalize(vec3(nor.x,nor.y,nor.z)); 
+    nor         = u_rotateM * vec4(a_Tangent,1.0);
+    vTangent    = normalize(vec3(nor.x,nor.y,nor.z));
+
+    vTextureUv = a_TEXCOORD_0;
+    vPosition = gl_Position.xyz;
+  }
+</script>
 <script type="x-shader/x-fragment" id="fs">
   #version 300 es
   precision highp float;
 
-  in vec3 v_normal;
+  in vec3 vPosition;
+  in vec3 vNormal;
+  in vec3 vTangent;
   in vec2 vTextureUv;
+
+  uniform vec3 uLightPosition;
+  uniform vec3 uLightColor;
+  uniform float uLightRadius;
+  uniform vec3 uCamPosition;
 
   //uniform sampler2D uRadianceMap;
   //uniform sampler2D uIrradianceMap;
   uniform sampler2D uBaseColorMap;
   uniform sampler2D uMetalRoughMap;
   uniform sampler2D uNormalMap;
+  uniform sampler2D uEmissiveMap;
   uniform sampler2D uAOMAP;
   //uniform samplerCube 	depthMap;
 
   out vec4 outColor;
 
+  #define saturate(x) clamp(x, 0.0, 1.0)
+  #define PI 3.14159265359
+
+  vec3 getNormap(vec3 t,vec3 n,vec3 color) {
+    vec3 b = cross(t,n);
+	  b = normalize(b);
+	  mat3 tbn = mat3(t,b,n);
+	  return normalize(tbn * color);
+  }
+
+  vec3 Diffuse_Lambert( vec3 diff ) {
+      return diff * (1.0 / PI);
+  }
+  
+  float D_GGX( float roughness, float NoH ) {
+      float m = roughness * roughness;
+      float m2 = m * m;
+      float d = ( NoH * m2 - NoH ) * NoH + 1.0;    // 2 mad
+      return m2 / ( PI*d*d );                     // 4 mul, 1 rcp
+  }
+  
+  float Vis_Smith( float roughness, float NoV, float NoL ) {
+      float a = roughness * roughness ;
+      float a2 = a*a;
+  
+      float Vis_SmithV = NoV + sqrt( NoV * (NoV - NoV * a2) + a2 );
+      float Vis_SmithL = NoL + sqrt( NoL * (NoL - NoL * a2) + a2 );
+      return 1.0 / ( Vis_SmithV * Vis_SmithL );
+  }
+  
+  vec3 F_Schlick( vec3 specularColor, float VoH ) {
+      float Fc = pow( 1.0 - VoH, 5.0 );
+      return Fc + (1.0 - Fc) * specularColor;
+  }
+
+  float getAttenuation( vec3 lightPosition, vec3 vertexPosition, float lightRadius ) {
+    float r                = lightRadius;
+    vec3 L                 = lightPosition - vertexPosition;
+    float dist             = length(L);
+    float d                = max( dist - r, 0.0 );
+    L                      /= dist;
+    float denom            = d / r + 1.0;
+    float attenuation      = 1.0 / (denom*denom);
+    float cutoff           = 0.0052;
+    attenuation            = (attenuation - cutoff) / (1.0 - cutoff);
+    attenuation            = max(attenuation, 0.0);
+    
+    return attenuation;
+  }
+
+  vec2 dHdxy_fwd() {
+    vec2 dSTdx = dFdx( vTextureUv );
+    vec2 dSTdy = dFdy( vTextureUv );
+    float Hll = 2.0 * texture( uNormalMap, vTextureUv ).x;
+    float dBx = 2.0 * texture( uNormalMap, vTextureUv + dSTdx ).x - Hll;
+    float dBy = 2.0 * texture( uNormalMap, vTextureUv + dSTdy ).x - Hll;
+    return vec2( dBx, dBy );
+  }
+
+  vec3 perturbNormalArb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy ) {
+    vec3 vSigmaX = vec3( dFdx( surf_pos.x ), dFdx( surf_pos.y ), dFdx( surf_pos.z ) );
+    vec3 vSigmaY = vec3( dFdy( surf_pos.x ), dFdy( surf_pos.y ), dFdy( surf_pos.z ) );
+    vec3 vN = surf_norm;
+    vec3 R1 = cross( vSigmaY, vN );
+    vec3 R2 = cross( vN, vSigmaX );
+    float fDet = dot( vSigmaX, R1 );
+    fDet *= ( float( gl_FrontFacing ) * 2.0 - 1.0 );
+    vec3 vGrad = sign( fDet ) * ( dHdxy.x * R1 + dHdxy.y * R2 );
+    return normalize( abs( fDet ) * surf_norm - vGrad );
+  }
+
+  vec3 toneMap(vec3 src){
+    vec3 color = src / (1.0 + src);
+    color = pow(color,vec3(1.0/2.2,1.0/2.2,1.0/2.2));
+    return color;
+  }
+
   void main () {
-    vec3 normal = normalize(v_normal);
-    vec4 albeoColor	= texture( uBaseColorMap , vTextureUv);
-    outColor = vec4(albeoColor.x, albeoColor.y, albeoColor.z, 1);
+    vec3 albeoColor	= texture( uBaseColorMap , vTextureUv).xyz;
+    vec3 emmisColor = texture( uEmissiveMap, vTextureUv ).xyz;
+    vec3 ao         = texture( uAOMAP, vTextureUv).xyz * 1.5;
+
+    vec3  mrColor   = texture(uMetalRoughMap, vTextureUv).xyz;
+    float metallic  = mrColor.z;
+    float roughness = saturate(mrColor.y + 0.01);
+    float specular  = mrColor.y;
+
+    vec3 diffuseColor = albeoColor - albeoColor * metallic;
+    vec3 specularColor = mix(vec3(0.08 * specular), albeoColor, metallic);
+
+    vec3 texN     = texture(uNormalMap, vTextureUv).xyz;
+    texN          = texN * 2.0 - 1.0;
+    
+    vec3 N        = getNormap(vTangent, vNormal, texN);
+    vec3 V 				= normalize( uCamPosition - vPosition );
+	  vec3 L        = normalize( uLightPosition - vPosition );
+	  vec3 H				= normalize(V + L);
+
+	  float NoL			= saturate( dot( N, L ) );
+	  float NoV			= saturate( dot( N, V ) );
+	  float VoH			= saturate( dot( V, H ) );
+	  float NoH			= saturate( dot( N, H ) );
+
+    float D   = D_GGX(roughness, NoH);
+    float Vis = Vis_Smith(roughness, NoV, NoL);
+    vec3  F   = F_Schlick(specularColor, VoH);
+
+    vec3 d = Diffuse_Lambert(diffuseColor);
+    vec3 s =  D * Vis * F;
+    vec3 color = uLightColor * (d + s) * NoL;
+    float attenuation  = getAttenuation( uLightPosition, vPosition, uLightRadius );
+
+    color = color * ao * attenuation;
+    
+    outColor = vec4(color, 1.0);
   }
 </script>
-<script type="x-shader/x-vertex" id="vs">
-  #version 300 es
-  in vec4 a_POSITION;
-  in vec3 a_NORMAL;
-  in vec2 a_TEXCOORD_0;
 
-  
-  uniform mat4 u_projectionM;
-  uniform mat4 u_modelViewM;
-  uniform mat4 u_normalM;
-  
-  
-  out vec2 vTextureUv;
-  out vec3 v_normal;
-
-  void main() {
-    gl_Position = u_projectionM * u_modelViewM * a_POSITION;
-    v_normal = mat3(u_normalM) * a_NORMAL;
-    vTextureUv = a_TEXCOORD_0;
-  }
-</script>
 <script src="https://webgl2fundamentals.org/webgl/resources/m4.js"></script>
 <script src="./index.js"></script>
+
 </html>

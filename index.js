@@ -1,54 +1,67 @@
-
-import {mat4} from 'gl-matrix'
+import {mat4, vec3, quat} from 'gl-matrix'
 import * as twgl from 'twgl.js'
 
 twgl.setAttributePrefix("a_");
 
-function Cuboid(minX, maxX, minY, maxY, minZ, maxZ) {
-    this.minX = minX;
-    this.maxX = maxX;
-    this.minY = minY;
-    this.maxY = maxY;
-    this.minZ = minZ;
-    this.maxZ = maxZ;
-}
-
-Cuboid.prototype = {
-    constructor: Cuboid,
-    CenterX: function () {
-        return (this.minX + this.maxX) / 2.0;
-    },
-    CenterY: function () {
-        return (this.minY + this.maxY) / 2.0;
-    },
-    CenterZ: function () {
-        return (this.minZ + this.maxZ) / 2.0;
-    },
-    LengthX: function () {
-        return (this.maxX - this.minX);
-    },
-    LengthY: function () {
-        return (this.maxY - this.minY);
-    }
-}
-
-function getAccessorAndWebGLBuffer(gl, gltf, accessorIndex) {
-    const accessor = gltf.accessors[accessorIndex];
-    const bufferView = gltf.bufferViews[accessor.bufferView];
+function getAccessorAndWebGLBuffer(gl, glTF, accessorIndex) {
+    const accessor = glTF.accessors[accessorIndex];
+    const bufferView = glTF.bufferViews[accessor.bufferView];
+    var dataOUT;
     if (!bufferView.webglBuffer) {
         const buffer = gl.createBuffer();
         const target = bufferView.target || gl.ARRAY_BUFFER;
-        const arrayBuffer = gltf.buffers[bufferView.buffer];
+        const arrayBuffer = glTF.buffers[bufferView.buffer];
+        console.log(arrayBuffer);
         const data = new Uint8Array(arrayBuffer, bufferView.byteOffset, bufferView.byteLength);
         gl.bindBuffer(target, buffer);
         gl.bufferData(target, data, gl.STATIC_DRAW);
         bufferView.webglBuffer = buffer;
+        //hard code for position and vu data
+        dataOUT = new Float32Array(glTF.buffers[0], bufferView.byteOffset, bufferView.byteLength / Float32Array.BYTES_PER_ELEMENT);
     }
     return {
         accessor,
         buffer: bufferView.webglBuffer,
         stride: bufferView.stride || 0,
+        data: dataOUT,
     };
+}
+
+function initVertexBuffers(gl, glTF) {
+    const attribs = {};
+    let numElements;
+    var primitive = glTF.meshes[0].primitives[0];
+    for (const [attribName, index] of Object.entries(primitive.attributes)) {
+      const {accessor, buffer, stride, data} = getAccessorAndWebGLBuffer(gl, glTF, index);
+      numElements = accessor.count;
+      attribs[`a_${attribName}`] = {
+        buffer,
+        type: accessor.componentType,
+        numComponents: accessorTypeToNumComponents(accessor.type),
+        stride,
+        offset: accessor.byteOffset | 0,
+        data, data
+      };
+    }
+    const bufferInfo = {
+        attribs,
+        numElements,
+    };
+
+    if (primitive.indices !== undefined) {
+        const { accessor, buffer } = getAccessorAndWebGLBuffer(gl, glTF, primitive.indices);
+        bufferInfo.numElements = accessor.count;
+        bufferInfo.indices = buffer;
+        bufferInfo.elementType = accessor.componentType;
+    }
+
+    primitive.bufferInfo = bufferInfo;
+    primitive.vao = twgl.createVAOFromBufferInfo(gl, meshProgramInfo, primitive.bufferInfo);
+    
+    //console.log(gl.getActiveAttrib(meshProgramInfo.program, 0));
+    // 存储图元的材质信息
+    //primitive.material = glJSON.materials && glJSON.materials[primitive.material] || defaultMaterial;
+    return true;
 }
 
 function loadTextures(gl, glTF) {
@@ -87,13 +100,10 @@ function loadTextures(gl, glTF) {
     Object.keys(textures).forEach(uniformV => {
         glTF.materials[0].uniforms[uniformV] = glTextures[uniformV];
     })
-    console.log(glTF.materials[0].uniforms);
+    //console.log(glTF.materials[0].uniforms);
     
     return true;
 }
-
-
-
 
 const url = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf'
 const baseURL = new URL(url, location.href);
@@ -102,10 +112,6 @@ function uri2URL(uri) {
    // console.log(_url);
     return _url;
 }
-
-//mouse event handler
-//Reference: 
-
 
 let request = new XMLHttpRequest();
 request.open('GET', url);
@@ -122,12 +128,48 @@ request.onload = function () {
     binReq.send();
     binReq.onload = function () {
         glTF.buffers[0] = binReq.response;
-        //console.log(glJSON);
         main(glTF);
+        console.log(glTF);
     }
 };
 
+function spArray(n, arr) {
+    var res = [], i;
+    for (i = 0; i < arr.length;) {
+        res.push(arr.slice(i, i += n));
+    }
+    return res;
+}
 
+function setupTangent(gl, glTF) {
+    var attribs = glTF.meshes[0].primitives[0].bufferInfo.attribs;
+    var normal = spArray(3, attribs.a_NORMAL.data);
+    //var vu = spArray(2, attribs.a_TEXCOORD_0.data);
+
+    
+    var tangents = [];
+    let i = 0;
+    normal.forEach(e => {
+        var c1  = vec3.create();
+        vec3.cross(c1, e, [0.0, 0.0, 1.0]);
+        var c2 = vec3.create();
+        vec3.cross(c2, e, [0.0, 1.0, 0.0]);
+        var tangent = vec3.create();
+        if (vec3.length(c1) > vec3.length(c2)) {
+            tangent = c1;
+        }
+        else {
+            tangent = c2;
+        }
+        vec3.normalize(tangent, tangent);
+        tangents[i++] = tangent[0];
+        tangents[i++] = tangent[1];
+        tangents[i++] = tangent[2];
+    });
+    // console.log(tangents);
+    var bufferInfo = twgl.createBufferInfoFromArrays(gl, {Tangent: tangents});
+    twgl.setBuffersAndAttributes(gl, meshProgramInfo, bufferInfo);
+}
 
 function throwNoKey(key) {
     throw new Error(`no key: ${key}`);
@@ -143,51 +185,12 @@ const accessorTypeToNumComponentsMap = {
     'MAT4': 16,
 };
 
-const defaultMaterial = {
-    uniform: {
-        u_diffuse:[.5, .8, 1, 1],
-    },
-};
+
 
 function accessorTypeToNumComponents(type) {
     return accessorTypeToNumComponentsMap[type] || throwNoKey(type);
 }
 
-
-
-function initVertexBuffers(gl, glTF) {
-    const attribs = {};
-    let numElements;
-    var primitive = glTF.meshes[0].primitives[0];
-    for (const [attribName, index] of Object.entries(primitive.attributes)) {
-      const {accessor, buffer, stride} = getAccessorAndWebGLBuffer(gl, glTF, index);
-      numElements = accessor.count;
-      attribs[`a_${attribName}`] = {
-        buffer,
-        type: accessor.componentType,
-        numComponents: accessorTypeToNumComponents(accessor.type),
-        stride,
-        offset: accessor.byteOffset | 0,
-      };
-    }
-    const bufferInfo = {
-        attribs,
-        numElements,
-    };
-
-    if (primitive.indices !== undefined) {
-        const { accessor, buffer } = getAccessorAndWebGLBuffer(gl, glTF, primitive.indices);
-        bufferInfo.numElements = accessor.count;
-        bufferInfo.indices = buffer;
-        bufferInfo.elementType = accessor.componentType;
-    }
-
-    primitive.bufferInfo = bufferInfo;
-    primitive.vao = twgl.createVAOFromBufferInfo(gl, meshProgramInfo, primitive.bufferInfo);
-    // 存储图元的材质信息
-    //primitive.material = glJSON.materials && glJSON.materials[primitive.material] || defaultMaterial;
-    return 1;
-}
 
 var cubeRotation = 0.0;
 var canvas = document.querySelector('#pbr-test');
@@ -215,7 +218,7 @@ function main(glTF) {
         console.log('Failed to set the Texture!');
     }
 
-    //TODO: setupPBRMaterial
+    setupTangent(gl, glTF);
 
     //TODO: setupCubeMap
     
@@ -227,7 +230,7 @@ function main(glTF) {
         time *= 0.001;  // convert to seconds
         var deltaTime = time - then;
         then = time;
-        const fieldOfView = 45 * Math.PI / 180;   // in radians
+        const fieldOfView = 30 * Math.PI / 180;   // in radians
         const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
         const zNear = 0.1;
         const zFar = 1000.0;
@@ -241,29 +244,21 @@ function main(glTF) {
             zNear,
             zFar);
 
-        // Set the drawing position to the "identity" point, which is
-        // the center of the scene.
-        const modelViewMatrix = mat4.create();
-
-        // Now move the drawing position a bit to where we want to
-        // start drawing the square.
+        var modelMatrix = [1,0,0,0, 
+                           0,1,0,0, 
+                           0,0,1,0,
+                           0,0,0,1];
         cubeRotation = cubeRotation + deltaTime;
+        //cubeRotation = 45;
         //console.log(cubeRotation);
-        mat4.translate(modelViewMatrix,     
-            modelViewMatrix,
-            [0.0, 0.0, -5.0]);  
-        mat4.rotate(modelViewMatrix,  // destination matrix
-            modelViewMatrix,  // matrix to rotate
-            cubeRotation,     // amount to rotate in radians
-            [0, 1, 0]);       // axis to rotate around (Y)
-        mat4.rotate(modelViewMatrix,  // destination matrix
-            modelViewMatrix,  // matrix to rotate
-            90,// amount to rotate in radians
-            [1, 0, 0]);       // axis to rotate around (X)
-
-        const normalMatrix = mat4.create();
-        mat4.invert(normalMatrix, modelViewMatrix);
-        mat4.transpose(normalMatrix, normalMatrix);
+        
+        
+        
+        
+        var camPos = [0.0, 0.0, -7.0];
+        var viewMatrix = mat4.create();
+        mat4.lookAt(viewMatrix, camPos, [0,0,0], [0,1,0]);
+        //mat4.invert(viewMatrix, viewMatrix);
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -272,14 +267,37 @@ function main(glTF) {
         gl.useProgram(meshProgramInfo.program);
         gl.bindVertexArray(primitive.vao);
         //console.log(primitive.vao);
+        var rotateMatrix = mat4.create();
+        mat4.fromQuat(rotateMatrix, glTF.nodes[0].rotation);
+        //mat4.invert(rotateMatrix, rotateMatrix);
+        mat4.rotate(rotateMatrix,  
+            rotateMatrix,  
+            cubeRotation,    
+            //0,
+            [0, 0, 1]
+        );
         twgl.setBuffersAndAttributes(gl, meshProgramInfo, primitive.bufferInfo);
         twgl.setUniforms(meshProgramInfo, {
             u_projectionM: projectionMatrix,
-            u_modelViewM: modelViewMatrix,
-            u_normalM: normalMatrix,
+            u_modelM: modelMatrix,
+            u_viewM: viewMatrix,
+            u_rotateM: rotateMatrix,
         });
+
         var material = glTF.materials[0];
         twgl.setUniforms(meshProgramInfo, material.uniforms);
+
+        var lightPosition = vec3.create();
+        lightPosition =  camPos;
+        //vec3.rotateY(lightPosition, lightPosition, [0, 0, 0], cubeRotation);
+        //console.log(lightPosition);
+        twgl.setUniforms(meshProgramInfo, {
+            uLightPosition: lightPosition,
+            uCamPosition: camPos,
+            uLightRadius: 3,
+            uLightColor: [50, 50, 50],
+        });
+
         //twgl.setUniforms(meshProgramInfo, sharedUniforms);
         twgl.drawBufferInfo(gl, primitive.bufferInfo);
 
