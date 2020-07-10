@@ -1,4 +1,4 @@
-import { mat4, vec3, quat } from 'gl-matrix'
+import { mat4, vec3} from 'gl-matrix'
 import * as twgl from 'twgl.js'
 
 twgl.setAttributePrefix("a_");
@@ -85,17 +85,19 @@ function loadTextures(gl, glTF) {
 
     }
     if (metalRoughMapIndex != null) {
-        textures['uMetalRoughMap'] = { src: uri2URL(images[metalRoughMapIndex].uri) };
+        textures['uMetalRoughMap'] = { src: uri2URL(images[metalRoughMapIndex].uri), mag: gl.NEAREST, min: gl.LINEAR };
     }
     if (normalMapIndex != null) {
-        textures['uNormalMap'] = { src: uri2URL(images[normalMapIndex].uri) };
+        textures['uNormalMap'] = { src: uri2URL(images[normalMapIndex].uri), mag: gl.NEAREST, min: gl.LINEAR };
     }
     if (occlusionColorIndex != null) {
-         textures['uAOMAP'] = { src: uri2URL(images[occlusionColorIndex].uri) };
+         textures['uAOMAP'] = { src: uri2URL(images[occlusionColorIndex].uri), mag: gl.NEAREST, min: gl.LINEAR };
     }
     if (emissiveMapIndex != null) {
-        textures['uEmissiveMap'] = { src: uri2URL(images[emissiveMapIndex].uri) };
+        textures['uEmissiveMap'] = { src: uri2URL(images[emissiveMapIndex].uri), mag: gl.NEAREST, min: gl.LINEAR };
     }
+    textures['uIrradianceMap'] = { src: location.href + 'env_d.png' };
+    textures['uRadianceMap'] = { src: location.href + 'env_s.png' };
 
     var glTextures = twgl.createTextures(gl, textures);
     glTF.materials[0].uniforms = {};
@@ -141,12 +143,9 @@ function spArray(n, arr) {
     return res;
 }
 
-function setupTangent(gl, glTF) {
-    var attribs = glTF.meshes[0].primitives[0].bufferInfo.attribs;
+function setupTangent(gl, attribs) {
     var normal = spArray(3, attribs.a_NORMAL.data);
     //var vu = spArray(2, attribs.a_TEXCOORD_0.data);
-
-
     var tangents = [];
     let i = 0;
     normal.forEach(e => {
@@ -166,10 +165,10 @@ function setupTangent(gl, glTF) {
         tangents[i++] = tangent[1];
         tangents[i++] = tangent[2];
     });
-    glTF.meshes[0].primitives[0].bufferInfo.attribs
+
+    glTF.meshes[0].primitives[0].bufferInfo.attribs;
     var bufferInfo = twgl.createBufferInfoFromArrays(gl, { Tangent: tangents });
-    twgl.setBuffersAndAttributes(gl, meshProgramInfo, bufferInfo);
-    console.log(tangents);
+    return twgl.setBuffersAndAttributes(gl, meshProgramInfo, bufferInfo);
 }
 
 function throwNoKey(key) {
@@ -185,8 +184,6 @@ const accessorTypeToNumComponentsMap = {
     'MAT3': 9,
     'MAT4': 16,
 };
-
-
 
 function accessorTypeToNumComponents(type) {
     return accessorTypeToNumComponentsMap[type] || throwNoKey(type);
@@ -207,8 +204,8 @@ function main(glTF) {
     gl.clearColor(.1, .1, .1, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-
     var n = initVertexBuffers(gl, glTF)
+    
     //console.log(gl.program);
     if (n <= 0) {
         console.log('Failed to set the vertex buffer');
@@ -238,7 +235,7 @@ function main(glTF) {
             zFar);
         cubeRotation = cubeRotation + deltaTime;
 
-        var camPos = [0.0, 0.0, -7.0];
+        var camPos = [0.0, 0.0, -4.0];
         var viewMatrix = mat4.create();
         mat4.lookAt(viewMatrix, camPos, [0, 0, 0], [0, 1, 0]);
         //mat4.invert(viewMatrix, viewMatrix);
@@ -278,9 +275,9 @@ function main(glTF) {
             uLightPosition: lightPosition,
             uCamPosition: camPos,
             uLightRadius: 3,
-            uLightColor: [50, 50, 50],
+            uLightColor: [20, 20, 20],
         });
-
+        
         //twgl.setUniforms(meshProgramInfo, sharedUniforms);
         twgl.drawBufferInfo(gl, primitive.bufferInfo);
 
