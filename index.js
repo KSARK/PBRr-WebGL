@@ -96,8 +96,8 @@ function loadTextures(gl, glTF) {
     if (emissiveMapIndex != null) {
         textures['uEmissiveMap'] = { src: uri2URL(images[emissiveMapIndex].uri), mag: gl.NEAREST, min: gl.LINEAR };
     }
-    textures['uIrradianceMap'] = { src: location.href + 'env_d.png' };
-    textures['uRadianceMap'] = { src: location.href + 'env_s.png' };
+    textures['uIrradianceMap'] = { src: location.href + 'env_d.png', mag: gl.NEAREST, min: gl.LINEAR };
+    textures['uRadianceMap'] = { src: location.href + 'env_s.png', mag: gl.NEAREST, min: gl.LINEAR };
 
     var glTextures = twgl.createTextures(gl, textures);
     glTF.materials[0].uniforms = {};
@@ -235,7 +235,7 @@ function main(glTF) {
             zFar);
         cubeRotation = cubeRotation + deltaTime;
 
-        var camPos = [0.0, 0.0, -4.0];
+        var camPos = [0.0, 0.0, -3.0];
         var viewMatrix = mat4.create();
         mat4.lookAt(viewMatrix, camPos, [0, 0, 0], [0, 1, 0]);
         //mat4.invert(viewMatrix, viewMatrix);
@@ -275,7 +275,7 @@ function main(glTF) {
             uLightPosition: lightPosition,
             uCamPosition: camPos,
             uLightRadius: 3,
-            uLightColor: [20, 20, 20],
+            uLightColor: [10, 10, 10],
         });
         
         //twgl.setUniforms(meshProgramInfo, sharedUniforms);

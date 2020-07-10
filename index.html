@@ -29,6 +29,7 @@
   out vec2 vTextureUv;
   out vec3 vNormal;
   out vec3 vTangent;
+  out vec3 vWorldPos;
   
   void main(){
     gl_Position=u_projectionM*u_viewM*u_rotateM*a_POSITION;
@@ -41,6 +42,7 @@
     
     vTextureUv=a_TEXCOORD_0;
     vPosition=gl_Position.xyz;
+    vWorldPos=(u_rotateM*a_POSITION).xyz;
   }
 </script>
 <script type="x-shader/x-fragment" id="fs">
@@ -51,6 +53,7 @@
   in vec3 vNormal;
   in vec3 vTangent;
   in vec2 vTextureUv;
+  in vec3 vWorldPos;
   
   uniform vec3 uLightPosition;
   uniform vec3 uLightColor;
@@ -78,6 +81,22 @@
       b=normalize(b);
       mat3 tbn=mat3(t,b,n);
       return normalize(tbn*color);
+  }
+
+  vec3 getNormalFormMap(){
+    vec3 tangentN = texture(uNormalMap, vTextureUv).xyz * 2.0 - 1.0;
+
+    vec3 Q1 = dFdx(vWorldPos);
+    vec3 Q2 = dFdy(vWorldPos);
+    vec2 st1 = dFdx(vTextureUv);
+    vec2 st2 = dFdy(vTextureUv);
+
+    vec3 N = normalize(vNormal);
+    vec3 T = normalize(Q1*st2.t - Q2*st1.t);
+    vec3 B = -normalize(cross(N, T));
+    mat3 TBN = mat3(T, B, N);
+
+    return normalize(TBN * tangentN);
   }
   
   vec3 Diffuse_Lambert(vec3 diff){
@@ -171,7 +190,8 @@
   }
   
   void main(){
-      vec3 albeoColor=texture(uBaseColorMap,vTextureUv).xyz;
+      vec4 albeoColor=texture(uBaseColorMap,vTextureUv);
+      vec3 baseColor=albeoColor.xyz;
       vec3 emmisColor=texture(uEmissiveMap,vTextureUv).xyz;
       vec3 ao=texture(uAOMAP,vTextureUv).xyz*1.5;
       
@@ -180,13 +200,13 @@
       float roughness=mrColor.y;
       float specular=mrColor.y;
       
-      vec3 diffuseColor=albeoColor-albeoColor*metallic;
-      vec3 specularColor=mix(vec3(.08*specular),albeoColor,metallic);
+      vec3 diffuseColor=baseColor-baseColor*metallic;
+      vec3 specularColor=mix(vec3(.08*specular),baseColor,metallic);
       
       vec3 texN=texture(uNormalMap,vTextureUv).xyz;
       texN=texN*2.-1.;
       
-      vec3 N=vNormal;
+      vec3 N=getNormalFormMap();
       vec3 V=normalize(uCamPosition-vPosition);
       vec3 L=normalize(uLightPosition-vPosition);
       vec3 H=normalize(V+L);
@@ -205,17 +225,16 @@
       vec3 color=uLightColor*(d+s)*NoL;
       float attenuation=getAttenuation(uLightPosition,vPosition,uLightRadius);
       
-      color=color*attenuation*ao;
-      color+=(emmisColor*1.5);
-
+      color=color*attenuation;
+    
       float numMips = 5.0;
       float mip = clamp(log2(roughness) + numMips, 0.0, numMips);
       float mixmip = fract(mip);
       vec3 lookup = -reflect(V, N);
 
       vec4 mipuv = lerpMip(lookup, mip);
-      vec3 radiance1 = getHdr(texture(uRadianceMap, mipuv.xy));
-      vec3 radiance2 = getHdr(texture(uRadianceMap, mipuv.xy));
+      vec3 radiance1 = getHdr(texture(uRadianceMap, mipuv.xy)) * 0.8;
+      vec3 radiance2 = getHdr(texture(uRadianceMap, mipuv.xy)) * 0.8;
       vec3 radiance = mix(radiance1, radiance2, vec3(mixmip, mixmip, mixmip));
       vec3 irradiance = getHdr(texture(uIrradianceMap, getuv(vNormal)));
 
@@ -223,9 +242,9 @@
       d = diffuseColor * irradiance;
       s = radiance * reflectance;
       color = color + s + d;
-      //color = toneMap(color);
+      color = toneMap(color) + emmisColor * 1.5;
 
-      outColor=vec4(color,1.);
+      outColor=vec4(color * ao * albeoColor.w, albeoColor.w);
   }
 </script>
 <script src="./index.js"></script>
